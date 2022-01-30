@@ -12,7 +12,8 @@ Client.on('ready', () => {
 })
 
 Client.on('message', (message) => {
-  Client.sendToChannel(message.channel.id, 'message');
+  Client.sendToChannel(message.channel.id, {content: `Hey ${message.author.username}`});
+  message.reply({content: 'I think your cool'}, true);
   console.log(message);
 })
 
