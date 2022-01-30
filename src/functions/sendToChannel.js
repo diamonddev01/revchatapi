@@ -1,40 +1,61 @@
-const https = require('https');
-const options = {
-    hostname: 'api.revolt.chat',
-    port: 443,
-    method: 'POST'
-}
+const wsm = require('./ws/manager');
+const { EventEmitter } = require('events');
+const { getUser, sendToChannel } = require('./functions/a');
 
-module.exports = async (channel, object, token) => {
-    options['path'] = `/channels/${channel}/messages`;
+module.exports = class Client extends EventEmitter {
+    constructor(token, opts) {
+        super();
 
-    const content = {
-        content: object.content,
-        attatchments: object.attatchments,
-        embeds: object.embeds,
-        replies: object.replies,
-        masquerade: object.masq
-    }
+        if (!opts) {
+            opts = {};
+            opts.debug = false;
+        }
 
-    options['headers'] = { 'x-bot-token': token, 'Content-Length': JSON.stringify(content).length, 'Content-Type': 'application/json' };
+        this.ws = new wsm(token, opts.debug);
+        this.id = null;
+        this._id = null;
+        this.username = null;
+        this.bot = true;
 
-    return new Promise((reso, rej) => {
-        const req = https.request(options, res => {
-            res.on('data', d => {
-                y = d.toString();
-                x = JSON.stringify(y);
-                v = JSON.parse(x);
-                if (v.startsWith('<')) return {};
-                v = JSON.parse(v);
-                reso(v);
+        this.ws.on('ready', (msg) => {
+            const bot = msg.users[0];
+            this.id = bot._id;
+            this._id = this.id;
+            this.username = bot.username;
+
+            this.emit('ready');
+        })
+        this.ws.on('message', async (msg) => {
+            const author = await getUser(msg.author, token).catch((e) => { console.log(e) });
+
+            this.emit('message', {
+                id: msg._id, content: msg.content, channel: {
+                    id: msg.channel,
+                    send: async (content) => {
+                        this.sendToChannel(msg.channel, content);
+                    }
+                }, author,
+                reply: async (content, ping = false) => {
+                    return new Promise(async (resolve, reject) => {
+                        const cnt = {
+                            content: content.content,
+                            attachments: content.attachments,
+                            embeds: content.embeds,
+                            masq: content.masq,
+                            replies: [{ "id": msg._id, mention: ping }]
+                        }
+                        const m = await this.sendToChannel(msg.channel, cnt).catch((e) => { reject(e) });
+                        resolve(m);
+                    })
+                }
+            });
+        })
+
+        this.sendToChannel = async (channel, obj) => {
+            return new Promise(async (resolve, reject) => {
+                const x = await sendToChannel(channel, obj, token).catch((e) => reject(e));
+                resolve(x);
             })
-        })
-
-        req.on('error', error => {
-            rej(error)
-        })
-
-        req.write(JSON.stringify(content));
-        req.end()
-    })
+        }
+    }
 }
